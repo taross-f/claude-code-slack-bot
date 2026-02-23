@@ -1,28 +1,26 @@
 {
-  "name": "claude-code-slack",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "claude-code-slack-bot",
+  "version": "2.0.0",
+  "description": "Claude Code Slack Bot - AI coding assistant for Slack",
+  "module": "src/index.ts",
+  "type": "module",
   "scripts": {
-    "start": "tsx src/index.ts",
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "prod": "node dist/index.js"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "@types/node": "^24.0.4",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:e2e": "bun test tests/e2e",
+    "lint": "bunx biome check --write src/ tests/",
+    "lint:ci": "bunx biome ci src/ tests/",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.35",
-    "@modelcontextprotocol/sdk": "^1.13.2",
-    "@slack/bolt": "^4.4.0",
-    "@types/node-fetch": "^2.6.12",
-    "dotenv": "^16.6.0",
-    "node-fetch": "^3.3.2"
+    "@slack/bolt": "^4.4.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/bun": "latest",
+    "typescript": "^5.8.0"
   }
 }
