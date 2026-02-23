@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "filesystem": {
+      "_comment": "Local filesystem access. Replace the path with the directory you want Claude to be able to read and write. No extra env vars required.",
       "command": "npx",
       "args": [
         "-y",
@@ -9,6 +10,7 @@
       ]
     },
     "github": {
+      "_comment": "GitHub API integration for reading repos, issues, pull requests, and more. Requires a GitHub personal access token set in GITHUB_TOKEN.",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
       "env": {
@@ -16,15 +18,43 @@
       }
     },
     "postgres": {
+      "_comment": "PostgreSQL database access. Set POSTGRES_CONNECTION_STRING to your database URL. Claude can run read and write queries.",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-postgres"],
       "env": {
         "POSTGRES_CONNECTION_STRING": "postgresql://user:password@localhost:5432/dbname"
       }
     },
+    "sqlite": {
+      "_comment": "SQLite database access via @modelcontextprotocol/server-sqlite. Pass the path to your .db file as the first argument.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sqlite", "/path/to/your/database.db"]
+    },
+    "brave-search": {
+      "_comment": "Web search powered by the Brave Search API. Requires a Brave Search API key set in BRAVE_API_KEY. Sign up at https://brave.com/search/api/",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "your-brave-api-key"
+      }
+    },
+    "puppeteer": {
+      "_comment": "Browser automation via Puppeteer. Allows Claude to navigate web pages, take screenshots, and interact with browser-based UIs. No extra env vars required.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+    },
     "web-search": {
+      "_comment": "Example SSE-type MCP server. Point url at a running SSE MCP server endpoint. Add any required auth headers below.",
       "type": "sse",
       "url": "http://localhost:3001/sse",
+      "headers": {
+        "Authorization": "Bearer your-api-key"
+      }
+    },
+    "http-example": {
+      "_comment": "Example streamable HTTP-type MCP server (MCP over HTTP with server-sent events). Point url at a running HTTP MCP server. Add any required auth headers below.",
+      "type": "http",
+      "url": "http://localhost:3002/mcp",
       "headers": {
         "Authorization": "Bearer your-api-key"
       }
