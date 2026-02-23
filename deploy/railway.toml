@@ -1,0 +1,24 @@
+# Railway deployment configuration for claude-code-slack-bot
+# Docs: https://docs.railway.app/reference/config-as-code
+#
+# Deploy:
+#   1. Connect your GitHub repo in the Railway dashboard
+#   2. Add the required environment variables (see .env.example)
+#   3. Railway will build and start the service automatically
+
+[build]
+  buildCommand = "bun install && bun run build"
+
+[deploy]
+  startCommand  = "bun run dist/index.js"
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyMaxRetries = 5
+
+[environments.production]
+  [environments.production.variables]
+    NODE_ENV = "production"
+    DB_PATH  = "/data/bot.db"
+
+# File watcher — triggers re-deploy on source changes (dev workflow)
+[[watch]]
+  paths = ["src/**"]

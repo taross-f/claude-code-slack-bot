@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      # Override DB_PATH to persist inside the named volume
+      DB_PATH: /data/bot.db
+    volumes:
+      - bot_data:/data
+    restart: unless-stopped
+
+    # Optional: mount a custom mcp-servers.json at runtime
+    # volumes:
+    #   - bot_data:/data
+    #   - ./mcp-servers.json:/app/mcp-servers.json:ro
+
+  # ─────────────────────────────────────────────────────────────
+  # Optional MCP sidecar services — uncomment as needed
+  # ─────────────────────────────────────────────────────────────
+
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: bot
+  #     POSTGRES_PASSWORD: secret
+  #     POSTGRES_DB: botdb
+  #   volumes:
+  #     - pg_data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+
+volumes:
+  bot_data:
+    driver: local
+
+  # Uncomment when enabling the postgres sidecar above
+  # pg_data:
+  #   driver: local

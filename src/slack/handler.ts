@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { App } from '@slack/bolt';
 import { PermissionGate } from '../claude/permissions';
 import type { Config } from '../config';
@@ -414,11 +415,7 @@ export function registerHandlers(deps: HandlerDeps): void {
       }
     } finally {
       for (const tmpPath of tempFiles) {
-        try {
-          unlinkSync(tmpPath);
-        } catch {
-          /* ignore */
-        }
+        cleanupTempFile(tmpPath);
       }
     }
   });

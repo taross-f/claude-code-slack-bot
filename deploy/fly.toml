@@ -1,0 +1,32 @@
+# Fly.io deployment configuration for claude-code-slack-bot
+# Docs: https://fly.io/docs/reference/configuration/
+#
+# Deploy:
+#   fly launch --no-deploy   # first time — creates app & sets secrets
+#   fly secrets set SLACK_BOT_TOKEN=xoxb-... SLACK_APP_TOKEN=xapp-... \
+#       SLACK_SIGNING_SECRET=... ANTHROPIC_API_KEY=sk-ant-...
+#   fly deploy
+
+app       = "claude-code-slack-bot"
+primary_region = "nrt"  # Tokyo; change to the region nearest your users
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV   = "production"
+  DB_PATH    = "/data/bot.db"
+
+# Persistent volume for SQLite database
+[mounts]
+  source      = "data"
+  destination = "/data"
+
+# This is a worker process — it uses Slack Socket Mode (outbound WebSocket
+# only) and does not expose any inbound HTTP port.
+[processes]
+  app = "bun run dist/index.js"
+
+[vm]
+  size   = "shared-cpu-1x"
+  memory = "512mb"
