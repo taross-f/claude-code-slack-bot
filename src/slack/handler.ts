@@ -1,6 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { writeFileSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
 import type { App } from '@slack/bolt';
 import { PermissionGate } from '../claude/permissions';
 import type { Config } from '../config';
@@ -10,6 +7,7 @@ import type { McpManager } from '../mcp/manager';
 import { Logger } from '../utils/logger';
 import type { ClaudeQueryFn, IncomingMessage, SlackFile, SlackOps } from '../utils/types';
 import { buildPermissionBlock } from './blocks';
+import { cleanupTempFile, processUploadedFile } from './file-upload';
 import { MessageProcessor } from './message-processor';
 
 export interface HandlerDeps {
@@ -22,8 +20,6 @@ export interface HandlerDeps {
 }
 
 const logger = new Logger('SlackHandler');
-
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -61,13 +57,8 @@ function isMcpReload(text: string): boolean {
   return /^mcp\s+reload\s*$/i.test(text);
 }
 
-/** Download a Slack file and return its Buffer (or null on failure / size exceeded). */
+/** Download a Slack file and return its Buffer (or null on failure). */
 async function downloadFile(file: SlackFile, botToken: string): Promise<Buffer | null> {
-  if (file.size > MAX_FILE_SIZE) {
-    logger.warn('File too large, skipping', { name: file.name, size: file.size });
-    return null;
-  }
-
   try {
     const response = await fetch(file.urlPrivate, {
       headers: { Authorization: `Bearer ${botToken}` },
@@ -84,26 +75,8 @@ async function downloadFile(file: SlackFile, botToken: string): Promise<Buffer |
   }
 }
 
-/** Returns true for mimetypes we embed as text in the prompt. */
-function isTextMimetype(mimetype: string): boolean {
-  return (
-    mimetype.startsWith('text/') ||
-    mimetype === 'application/json' ||
-    mimetype === 'application/xml' ||
-    mimetype === 'application/javascript' ||
-    mimetype === 'application/typescript' ||
-    mimetype === 'application/x-yaml' ||
-    mimetype === 'application/x-sh'
-  );
-}
-
-/** Returns true for image mimetypes we write to tmp and pass as a path. */
-function isImageMimetype(mimetype: string): boolean {
-  return mimetype.startsWith('image/');
-}
-
 /**
- * Process attached Slack files.
+ * Process attached Slack files using the file-upload module.
  * Returns:
  *  - `extra`: text to append to the user prompt (file contents / paths)
  *  - `tempFiles`: paths of temp files to clean up after processing
@@ -119,21 +92,15 @@ async function processFiles(
     const buffer = await downloadFile(file, botToken);
     if (!buffer) continue;
 
-    if (isTextMimetype(file.mimetype)) {
-      const content = buffer.toString('utf-8');
-      parts.push(`\n\n--- File: ${file.name} ---\n\`\`\`\n${content}\n\`\`\``);
-    } else if (isImageMimetype(file.mimetype)) {
-      const tmpPath = join('/tmp', `slack-bot-${randomUUID()}-${file.name}`);
-      writeFileSync(tmpPath, buffer);
-      tempFiles.push(tmpPath);
-      parts.push(`\n\n[Image file saved at: ${tmpPath} — use the Read tool to view it]`);
-    } else {
-      // Other binary files: save to tmp and reference by path
-      const tmpPath = join('/tmp', `slack-bot-${randomUUID()}-${file.name}`);
-      writeFileSync(tmpPath, buffer);
-      tempFiles.push(tmpPath);
-      parts.push(`\n\n[File "${file.name}" saved at: ${tmpPath}]`);
+    const result = await processUploadedFile(file, buffer);
+
+    if (result.kind === 'image') {
+      tempFiles.push(result.tempPath);
+      parts.push(`\n\n[Image saved to ${result.tempPath} - use Read tool to analyze it]`);
+    } else if (result.kind === 'text') {
+      parts.push(`\n\n--- File: ${file.name} ---\n${result.content}\n`);
     }
+    // 'skipped' results are silently ignored (already logged in processUploadedFile)
   }
 
   return { extra: parts.join(''), tempFiles };
@@ -330,11 +297,7 @@ export function registerHandlers(deps: HandlerDeps): void {
       }
     } finally {
       for (const tmpPath of tempFiles) {
-        try {
-          unlinkSync(tmpPath);
-        } catch {
-          /* ignore */
-        }
+        cleanupTempFile(tmpPath);
       }
     }
   });
