@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { PermissionGate, SAFE_TOOLS } from '../src/claude/permissions';
 import type { SlackOps } from '../src/utils/types';
 
@@ -120,7 +120,9 @@ describe('PermissionGate', () => {
       let externalResolve: ((v: boolean) => void) | undefined;
 
       const manualSlack: SlackOps = {
-        async say() { return { ts: '1000000000.000001' }; },
+        async say() {
+          return { ts: '1000000000.000001' };
+        },
         async updateMessage() {},
         async addReaction() {},
         async removeReaction() {},
@@ -133,7 +135,13 @@ describe('PermissionGate', () => {
         },
       };
 
-      const requestPromise = gate.request('Write', { file_path: '/tmp/x' }, 'C1', 't1', manualSlack);
+      const requestPromise = gate.request(
+        'Write',
+        { file_path: '/tmp/x' },
+        'C1',
+        't1',
+        manualSlack
+      );
 
       // Wait a tick for postPermissionRequest to be called and the approvalId to be registered
       await new Promise((r) => setTimeout(r, 0));

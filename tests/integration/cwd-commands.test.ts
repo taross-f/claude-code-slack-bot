@@ -20,7 +20,7 @@ import { SessionRepository } from '../../src/db/sessions';
 import { WorkingDirectoryRepository } from '../../src/db/working-dirs';
 import type { McpManager } from '../../src/mcp/manager';
 import { registerHandlers } from '../../src/slack/handler';
-import type { ClaudeQueryFn, ClaudeMessage } from '../../src/utils/types';
+import type { ClaudeMessage, ClaudeQueryFn } from '../../src/utils/types';
 
 // ---------------------------------------------------------------------------
 // Minimal fake Bolt App
@@ -64,12 +64,10 @@ function createFakeApp(): FakeApp {
 // ---------------------------------------------------------------------------
 
 function createFakeMcpManager(serverNames: string[] = []): McpManager & { reloadCalled: boolean } {
-  let reloadCalled = false;
   return {
     reloadCalled: false,
     load() {},
     reload() {
-      reloadCalled = true;
       (this as { reloadCalled: boolean }).reloadCalled = true;
     },
     getServers() {

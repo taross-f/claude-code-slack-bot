@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { Logger } from '../utils/logger';
 
 const MCP_CONFIG_PATH = 'mcp-servers.json';

@@ -1,8 +1,8 @@
-import { describe, expect, it, beforeEach } from 'bun:test';
+import type { Database } from 'bun:sqlite';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { createDatabase } from '../src/db/database';
 import { SessionRepository } from '../src/db/sessions';
 import { WorkingDirectoryRepository } from '../src/db/working-dirs';
-import type { Database } from 'bun:sqlite';
 
 function createTestDb(): Database {
   return createDatabase(':memory:');

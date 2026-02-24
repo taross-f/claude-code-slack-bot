@@ -47,7 +47,7 @@ function isImageMimetype(mimetype: string): boolean {
  */
 export async function processUploadedFile(
   file: SlackFile,
-  buffer: Buffer,
+  buffer: Buffer
 ): Promise<FileProcessResult> {
   if (file.size > MAX_FILE_SIZE) {
     const reason = `File "${file.name}" exceeds size limit (${file.size} bytes > ${MAX_FILE_SIZE} bytes)`;
@@ -70,7 +70,10 @@ export async function processUploadedFile(
   }
 
   const reason = `File "${file.name}" has unsupported binary mimetype: ${file.mimetype}`;
-  logger.warn('Unsupported binary file type, skipping', { name: file.name, mimetype: file.mimetype });
+  logger.warn('Unsupported binary file type, skipping', {
+    name: file.name,
+    mimetype: file.mimetype,
+  });
   return { kind: 'skipped', reason };
 }
 

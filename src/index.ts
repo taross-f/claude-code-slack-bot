@@ -1,6 +1,6 @@
 import { App } from '@slack/bolt';
-import { loadConfig } from './config';
 import { claudeQuery } from './claude/query';
+import { loadConfig } from './config';
 import { createDatabase } from './db/database';
 import { SessionRepository } from './db/sessions';
 import { WorkingDirectoryRepository } from './db/working-dirs';

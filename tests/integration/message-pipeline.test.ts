@@ -12,7 +12,7 @@
  * No real Slack API or Anthropic API calls are made.
  */
 
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { createDatabase } from '../../src/db/database';
 import { SessionRepository } from '../../src/db/sessions';
 import { WorkingDirectoryRepository } from '../../src/db/working-dirs';
@@ -210,11 +210,7 @@ function makeThrowingQuery(message: string): ClaudeQueryFn {
 // Test factory: build a MessageProcessor with fresh in-memory DB
 // ---------------------------------------------------------------------------
 
-function makeProcessor(
-  claudeQuery: ClaudeQueryFn,
-  slackOps: TrackedSlackOps,
-  workingDir?: string
-) {
+function makeProcessor(claudeQuery: ClaudeQueryFn, slackOps: TrackedSlackOps, workingDir?: string) {
   const db = createDatabase(':memory:');
   const sessionRepo = new SessionRepository(db);
   const workingDirRepo = new WorkingDirectoryRepository(db);
@@ -247,10 +243,7 @@ function makeProcessor(
 describe('Scenario 1 – simple ResultMessage with text content', () => {
   test('slackOps.say is called with the formatted text from the result', async () => {
     const slackOps = makeSlackOps();
-    const { processor } = makeProcessor(
-      makeSimpleResultQuery('Here is the answer.'),
-      slackOps
-    );
+    const { processor } = makeProcessor(makeSimpleResultQuery('Here is the answer.'), slackOps);
 
     await processor.process({
       userId: 'U1',
@@ -290,9 +283,7 @@ describe('Scenario 2 – streaming assistant messages', () => {
 
     // The MessageProcessor posts each text part individually.
     // Initial "Thinking" status is at posts[0]; assistant tokens follow.
-    const assistantPosts = slackOps.posts.filter(
-      (p) => !p.text.includes('Thinking')
-    );
+    const assistantPosts = slackOps.posts.filter((p) => !p.text.includes('Thinking'));
 
     // Every non-empty token should produce a post
     const nonEmptyTokens = tokens.filter((t) => t.trim().length > 0);
@@ -580,10 +571,7 @@ describe('Scenario 6 – session continuity across consecutive calls', () => {
 describe('Scenario 7 – claudeQuery throws an error', () => {
   test('processor updates status to error and re-throws', async () => {
     const slackOps = makeSlackOps();
-    const { processor } = makeProcessor(
-      makeThrowingQuery('Something went wrong'),
-      slackOps
-    );
+    const { processor } = makeProcessor(makeThrowingQuery('Something went wrong'), slackOps);
 
     await expect(
       processor.process({
@@ -601,10 +589,7 @@ describe('Scenario 7 – claudeQuery throws an error', () => {
 
   test('error reaction is added and thinking reaction is removed', async () => {
     const slackOps = makeSlackOps();
-    const { processor } = makeProcessor(
-      makeThrowingQuery('Boom'),
-      slackOps
-    );
+    const { processor } = makeProcessor(makeThrowingQuery('Boom'), slackOps);
 
     await expect(
       processor.process({
@@ -616,27 +601,18 @@ describe('Scenario 7 – claudeQuery throws an error', () => {
     ).rejects.toThrow('Boom');
 
     // thinking_face should have been removed on error
-    expect(
-      slackOps.reactionsRemoved.some((r) => r.name === 'thinking_face')
-    ).toBe(true);
+    expect(slackOps.reactionsRemoved.some((r) => r.name === 'thinking_face')).toBe(true);
 
     // x (error) reaction should have been added
-    expect(
-      slackOps.reactionsAdded.some((r) => r.name === 'x')
-    ).toBe(true);
+    expect(slackOps.reactionsAdded.some((r) => r.name === 'x')).toBe(true);
 
     // white_check_mark should NOT have been added
-    expect(
-      slackOps.reactionsAdded.some((r) => r.name === 'white_check_mark')
-    ).toBe(false);
+    expect(slackOps.reactionsAdded.some((r) => r.name === 'white_check_mark')).toBe(false);
   });
 
   test('no Completed update is emitted when query throws', async () => {
     const slackOps = makeSlackOps();
-    const { processor } = makeProcessor(
-      makeThrowingQuery('Fatal error'),
-      slackOps
-    );
+    const { processor } = makeProcessor(makeThrowingQuery('Fatal error'), slackOps);
 
     await expect(
       processor.process({

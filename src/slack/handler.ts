@@ -113,11 +113,11 @@ function normaliseFiles(raw: unknown): SlackFile[] {
   return (raw as unknown[]).map((item) => {
     const f = item as Record<string, unknown>;
     return {
-      id: f['id'] as string,
-      name: f['name'] as string,
-      mimetype: f['mimetype'] as string,
-      size: f['size'] as number,
-      urlPrivate: (f['url_private'] ?? f['urlPrivate']) as string,
+      id: f.id as string,
+      name: f.name as string,
+      mimetype: f.mimetype as string,
+      size: f.size as number,
+      urlPrivate: (f.url_private ?? f.urlPrivate) as string,
     };
   });
 }
@@ -126,7 +126,7 @@ function normaliseFiles(raw: unknown): SlackFile[] {
 // buildSlackOps
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: Bolt passes a WebClient subtype that differs from @slack/web-api's Block types
 function buildSlackOps(client: any, channelId: string): SlackOps {
   return {
     async say({ text, thread_ts }) {
@@ -197,7 +197,7 @@ export function registerHandlers(deps: HandlerDeps): void {
   // -------------------------------------------------------------------------
   // app_mention — bot mentioned in a channel
   // -------------------------------------------------------------------------
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt event callback types are complex generics
   app.event('app_mention', async ({ event, client, say }: any) => {
     const channelId: string = event.channel as string;
     const userId: string = event.user as string;
@@ -306,7 +306,7 @@ export function registerHandlers(deps: HandlerDeps): void {
   // -------------------------------------------------------------------------
   // message (im subtype) — direct messages
   // -------------------------------------------------------------------------
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt event callback types are complex generics
   app.message(async ({ event, client, say }: any) => {
     // Ignore bot messages and subtypes like message_changed / message_deleted
     if (event.bot_id || event.subtype === 'bot_message' || event.subtype) {
@@ -423,7 +423,7 @@ export function registerHandlers(deps: HandlerDeps): void {
   // -------------------------------------------------------------------------
   // member_joined_channel — bot added to a channel
   // -------------------------------------------------------------------------
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt event callback types are complex generics
   app.event('member_joined_channel', async ({ event, client }: any) => {
     const memberId: string = event.user as string;
     const channelId: string = event.channel as string;
@@ -462,7 +462,7 @@ export function registerHandlers(deps: HandlerDeps): void {
   // -------------------------------------------------------------------------
   // block_actions — Allow / Deny button clicks for permission requests
   // -------------------------------------------------------------------------
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt action callback types are complex generics
   app.action('approve_tool', async ({ ack, action }: any) => {
     await ack();
     const approvalId: string = action.value as string;
@@ -473,7 +473,7 @@ export function registerHandlers(deps: HandlerDeps): void {
     }
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt action callback types are complex generics
   app.action('deny_tool', async ({ ack, action }: any) => {
     await ack();
     const approvalId: string = action.value as string;

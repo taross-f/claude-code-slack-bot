@@ -1,6 +1,6 @@
+import { describe, expect, test } from 'bun:test';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, test } from 'bun:test';
 import { cleanupTempFile, processUploadedFile } from '../src/slack/file-upload';
 import type { SlackFile } from '../src/utils/types';
 
