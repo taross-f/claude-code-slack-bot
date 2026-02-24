@@ -1,296 +1,280 @@
 # Claude Code Slack Bot
 
-A Slack bot that integrates with Claude Code SDK to provide AI-powered coding assistance directly in your Slack workspace.
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)
+![Bun](https://img.shields.io/badge/Bun-1.x-black?logo=bun)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+A Slack bot that brings the Claude Code SDK into your Slack workspace. Ask coding questions, set a working directory, upload files for analysis, and let Claude plan and execute multi-step tasks — all without leaving Slack.
 
 ## Features
 
-- 🤖 Direct message support - chat with the bot privately
-- 💬 Thread support - maintains conversation context within threads
-- 🔄 Streaming responses - see Claude's responses as they're generated
-- 📝 Markdown formatting - code blocks and formatting are preserved
-- 🔧 Session management - maintains conversation context across messages
-- ⚡ Real-time updates - messages update as Claude thinks
+- **Streaming responses** — messages update in real time as Claude generates output
+- **Session continuity** — conversation context is preserved across messages within a thread using SQLite-backed sessions
+- **Working directory management** — per-channel defaults and per-thread overrides let each conversation target the right codebase
+- **Real-time task tracking** — Claude's todo list is displayed as a live Slack message with status updates and priority indicators
+- **File uploads** — text files are embedded in the prompt; images are written to a temp path for Claude to read with the Read tool; 50 MB size limit with automatic cleanup
+- **Permission gates** — destructive tool calls (Write, Bash, Edit, etc.) require user approval via interactive Slack buttons; safe read-only tools are allowed automatically
+- **MCP server support** — extend Claude with any stdio, SSE, or HTTP MCP server by editing `mcp-servers.json`
+- **Socket Mode** — no public HTTP endpoint required; the bot connects outbound via WebSocket
+
+## Architecture
+
+```
+src/
+├── index.ts                  # Entry point: wires up DB, Slack app, and handlers
+├── config.ts                 # Loads and validates environment variables
+├── claude/
+│   ├── query.ts              # Thin wrapper around the @anthropic-ai/claude-code SDK query()
+│   └── permissions.ts        # PermissionGate: approves safe tools, posts Slack prompts for others
+├── db/
+│   ├── database.ts           # SQLite setup and migrations via bun:sqlite
+│   ├── sessions.ts           # SessionRepository: read/write Claude session state
+│   └── working-dirs.ts       # WorkingDirectoryRepository: persist per-channel/thread cwds
+├── mcp/
+│   └── manager.ts            # Loads mcp-servers.json; supports runtime reload
+├── slack/
+│   ├── handler.ts            # Registers Slack event listeners; routes commands and messages
+│   ├── message-processor.ts  # Processes Claude SDK events into formatted Slack messages
+│   ├── formatter.ts          # Converts Claude markdown/tool output to Slack mrkdwn
+│   ├── blocks.ts             # Slack Block Kit builders (permission request UI, etc.)
+│   └── file-upload.ts        # Downloads and classifies Slack file attachments
+└── utils/
+    ├── logger.ts             # Structured JSON logger
+    └── types.ts              # Shared TypeScript type definitions
+```
 
 ## Prerequisites
 
-- Node.js 18+ installed
-- A Slack workspace where you can install apps
-- Claude Code
+- **Bun 1.x** — the project runs natively on Bun and uses `bun:sqlite`
+- A **Slack workspace** where you can install custom apps
+- An **Anthropic API key** (or AWS Bedrock / Google Vertex credentials)
 
-## Setup
+## Quick Start
 
-### 1. Clone and Install
+### 1. Clone and install
 
 ```bash
 git clone <your-repo>
-cd claude-code-slack
-npm install
+cd claude-code-slack-bot
+bun install
 ```
 
-### 2. Create Slack App
+### 2. Create the Slack app
 
-#### Option A: Using App Manifest (Recommended)
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click "Create New App"
-2. Choose "From an app manifest"
-3. Select your workspace
-4. Paste the contents of `slack-app-manifest.json` (or `slack-app-manifest.yaml`)
-5. Review and create the app
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**.
+2. Choose **From an app manifest** and select your workspace.
+3. Paste the contents of `slack-app-manifest.json` from this repo.
+4. Review and create the app.
+5. Under **OAuth & Permissions**, install the app to your workspace and copy the **Bot User OAuth Token** (`xoxb-…`).
+6. Under **Basic Information → App-Level Tokens**, generate a token with the `connections:write` scope and copy it (`xapp-…`).
+7. Copy the **Signing Secret** from **Basic Information**.
 
-#### Option B: Manual Configuration
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app
-2. Choose "From scratch" and give your app a name
-3. Select the workspace where you want to install it
-
-### 3. Configure Slack App
-
-After creating the app (either method), you need to:
-
-#### Generate Tokens
-1. Go to "OAuth & Permissions" and install the app to your workspace
-2. Copy the "Bot User OAuth Token" (starts with `xoxb-`)
-3. Go to "Basic Information" → "App-Level Tokens"
-4. Generate a token with `connections:write` scope
-5. Copy the token (starts with `xapp-`)
-
-#### Get Signing Secret
-1. Go to "Basic Information"
-2. Copy the "Signing Secret"
-
-### 4. Configure Environment
-
-Copy `.env.example` to `.env` and fill in your credentials:
+### 3. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
 Edit `.env`:
+
 ```env
-# Slack App Configuration
+# Required
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_APP_TOKEN=xapp-your-app-token
 SLACK_SIGNING_SECRET=your-signing-secret
+ANTHROPIC_API_KEY=your-anthropic-api-key
 
-# Claude Code Configuration
-# This is only needed if you don't use a Claude subscription
-
-# ANTHROPIC_API_KEY=your-anthropic-api-key
+# Optional — see Environment Variables table below
+BASE_DIRECTORY=/Users/username/Code/
+DB_PATH=bot.db
+CLAUDE_MAX_BUDGET_USD=1.0
+CLAUDE_MAX_TURNS=50
+DEBUG=true
 # CLAUDE_CODE_USE_BEDROCK=1
 # CLAUDE_CODE_USE_VERTEX=1
 ```
 
-### 5. Run the Bot
+### 4. Configure MCP servers (optional)
 
 ```bash
-# Development mode (with auto-reload)
-npm run dev
-
-# Production mode
-npm run build
-npm run prod
+cp mcp-servers.example.json mcp-servers.json
+# Edit mcp-servers.json and remove or adjust server entries as needed
 ```
+
+### 5. Start the bot
+
+```bash
+# Development with hot reload
+bun run dev
+
+# Production (no reload)
+bun run start
+```
+
+## Environment Variables
+
+| Name | Required | Default | Description |
+|---|---|---|---|
+| `SLACK_BOT_TOKEN` | Yes | — | Bot User OAuth Token (`xoxb-…`) |
+| `SLACK_APP_TOKEN` | Yes | — | App-Level Token for Socket Mode (`xapp-…`) |
+| `SLACK_SIGNING_SECRET` | Yes | — | Signing secret from Slack Basic Information |
+| `ANTHROPIC_API_KEY` | Yes* | — | Anthropic API key. Not required if using Bedrock or Vertex |
+| `BASE_DIRECTORY` | No | `""` | Root directory for relative `cwd` paths, e.g. `/Users/me/Code/` |
+| `DB_PATH` | No | `bot.db` | Path to the SQLite database file |
+| `CLAUDE_MAX_BUDGET_USD` | No | `1.0` | Maximum spend per query in USD |
+| `CLAUDE_MAX_TURNS` | No | `50` | Maximum agentic turns per query |
+| `CLAUDE_CODE_USE_BEDROCK` | No | `""` | Set to `1` to use AWS Bedrock instead of the Anthropic API |
+| `CLAUDE_CODE_USE_VERTEX` | No | `""` | Set to `1` to use Google Vertex AI instead of the Anthropic API |
+| `DEBUG` | No | `false` | Set to `true` to enable verbose debug logging |
+
+## Slack App Setup
+
+### Required OAuth scopes (bot)
+
+| Scope | Purpose |
+|---|---|
+| `app_mentions:read` | Receive `@mention` events in channels |
+| `channels:history` | Read messages in public channels |
+| `chat:write` | Post messages and reply in threads |
+| `chat:write.public` | Post in public channels without being invited |
+| `im:history` | Read direct messages sent to the bot |
+| `im:read` | Receive DM metadata |
+| `im:write` | Open and post to DM conversations |
+| `users:read` | Look up user info |
+| `reactions:read` | Read emoji reactions |
+| `reactions:write` | Add/remove emoji reactions on messages |
+
+### Required event subscriptions
+
+| Event | Trigger |
+|---|---|
+| `app_mention` | Bot is @mentioned in a channel |
+| `message.im` | User sends a direct message to the bot |
+| `member_joined_channel` | Bot is invited to a channel (triggers welcome + cwd setup) |
+
+Socket Mode must be enabled. An app-level token with the `connections:write` scope is required.
 
 ## Usage
 
-### Setting Working Directory
+### Setting a working directory
 
-Before using Claude Code, you must set a working directory. This tells Claude where your project files are located.
+The bot needs to know which directory to operate in. In a DM or after being added to a channel:
 
-#### Set working directory:
-
-**Relative paths** (if BASE_DIRECTORY is configured):
 ```
-cwd project-name
+cwd /absolute/path/to/project
 ```
 
-**Absolute paths**:
+If `BASE_DIRECTORY` is set you can use a short name:
+
 ```
-cwd /path/to/your/project
-```
-or
-```
-set directory /path/to/your/project
+cwd my-project
+# resolves to $BASE_DIRECTORY/my-project
 ```
 
-#### Check current working directory:
+Override the directory for a single thread only:
+
+```
+@ClaudeBot cwd other-project
+@ClaudeBot Now review the auth module in this other project
+```
+
+Check the current working directory:
+
 ```
 cwd
 ```
-or
+
+### Asking coding questions
+
+In a channel (after setting a working directory):
+
 ```
-get directory
-```
-
-### Working Directory Scope
-
-- **Direct Messages**: Working directory is set for the entire conversation
-- **Channels**: Working directory is set for the entire channel (prompted when bot joins)
-- **Threads**: Can override the channel/DM directory for a specific thread by mentioning the bot
-
-### Base Directory Configuration
-
-You can configure a base directory in your `.env` file to use relative paths:
-
-```env
-BASE_DIRECTORY=/Users/username/Code/
+@ClaudeBot Explain the session management in this codebase
 ```
 
-With this set, you can use:
-- `cwd herd-website` → resolves to `/Users/username/Code/herd-website`
-- `cwd /absolute/path` → uses absolute path directly
+In a direct message:
 
-### Direct Messages
-Simply send a direct message to the bot with your request:
 ```
-@ClaudeBot Can you help me write a Python function to calculate fibonacci numbers?
+Can you write a pytest fixture for a PostgreSQL test database?
 ```
 
-### In Channels
-When you first add the bot to a channel, it will ask for a default working directory for that channel.
+### Uploading files
 
-Mention the bot in any channel where it's been added:
-```
-@ClaudeBot Please review this code and suggest improvements
-```
+Drag and drop or attach a file with an optional description. Text files (code, JSON, markdown, etc.) are embedded directly in the prompt. Images are analyzed via the Read tool.
 
-### Thread-Specific Working Directories
-You can override the channel's default working directory for a specific thread:
 ```
-@ClaudeBot cwd different-project
-@ClaudeBot Now help me with this specific project
+[attach screenshot.png]
+What layout issues do you see in this UI?
 ```
 
-### Threads
-Reply in a thread to maintain conversation context. The bot will remember previous messages in the thread.
+### Viewing and reloading MCP servers
 
-### File Uploads
-You can upload files and images directly to any conversation:
-
-#### Supported File Types:
-- **Images**: JPG, PNG, GIF, WebP, SVG
-- **Text Files**: TXT, MD, JSON, JS, TS, PY, Java, etc.
-- **Documents**: PDF, DOCX (limited support)
-- **Code Files**: Most programming languages
-
-#### Usage:
-1. Upload a file by dragging and dropping or using the attachment button
-2. Add optional text to describe what you want Claude to do with the file
-3. Claude will analyze the file content and provide assistance
-
-**Note**: Files are temporarily downloaded for processing and automatically cleaned up after analysis.
-
-### MCP (Model Context Protocol) Servers
-
-The bot supports MCP servers to extend Claude's capabilities with additional tools and resources.
-
-#### Setup MCP Servers
-
-1. **Create MCP configuration file:**
-   ```bash
-   cp mcp-servers.example.json mcp-servers.json
-   ```
-
-2. **Configure your servers** in `mcp-servers.json`:
-   ```json
-   {
-     "mcpServers": {
-       "filesystem": {
-         "command": "npx",
-         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/files"]
-       },
-       "github": {
-         "command": "npx", 
-         "args": ["-y", "@modelcontextprotocol/server-github"],
-         "env": {
-           "GITHUB_TOKEN": "your-token"
-         }
-       }
-     }
-   }
-   ```
-
-#### MCP Commands
-
-- **View configured servers**: `mcp` or `servers`
-- **Reload configuration**: `mcp reload`
-
-#### Available MCP Servers
-
-- **Filesystem**: File system access (`@modelcontextprotocol/server-filesystem`)
-- **GitHub**: GitHub API integration (`@modelcontextprotocol/server-github`)
-- **PostgreSQL**: Database access (`@modelcontextprotocol/server-postgres`)
-- **Web Search**: Search capabilities (custom servers)
-
-All MCP tools are automatically allowed and follow the pattern: `mcp__serverName__toolName`
-
-## Advanced Configuration
-
-### Using AWS Bedrock
-Set these environment variables:
-```env
-CLAUDE_CODE_USE_BEDROCK=1
-# AWS credentials should be configured via AWS CLI or IAM roles
+```
+mcp
 ```
 
-### Using Google Vertex AI
-Set these environment variables:
-```env
-CLAUDE_CODE_USE_VERTEX=1
-# Google Cloud credentials should be configured
 ```
+mcp reload
+```
+
+## MCP Servers
+
+MCP (Model Context Protocol) servers extend what Claude can do — filesystem access, GitHub API calls, database queries, web search, and more.
+
+Copy the example configuration and edit it:
+
+```bash
+cp mcp-servers.example.json mcp-servers.json
+```
+
+`mcp-servers.json` supports three server types:
+
+```json
+{
+  "mcpServers": {
+    "my-stdio-server": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/files"]
+    },
+    "my-sse-server": {
+      "type": "sse",
+      "url": "http://localhost:3001/sse",
+      "headers": { "Authorization": "Bearer token" }
+    },
+    "my-http-server": {
+      "type": "http",
+      "url": "http://localhost:3002/mcp",
+      "headers": { "Authorization": "Bearer token" }
+    }
+  }
+}
+```
+
+See `mcp-servers.example.json` for annotated examples including `filesystem`, `github`, `postgres`, `sqlite`, `brave-search`, and `puppeteer`.
+
+All MCP tools are automatically allowed; they appear to Claude under the naming pattern `mcp__serverName__toolName`.
 
 ## Development
 
-### Debug Mode
+```bash
+# Run tests
+bun test
 
-Enable debug logging by setting `DEBUG=true` in your `.env` file:
-```env
-DEBUG=true
+# Run only unit tests
+bun test tests/unit
+
+# Run only e2e tests
+bun test tests/e2e
+
+# Lint and auto-fix
+bun run lint
+
+# Lint in CI mode (no writes)
+bun run lint:ci
+
+# Type-check without emitting
+bun run typecheck
 ```
-
-This will show detailed logs including:
-- Incoming Slack messages
-- Claude SDK request/response details
-- Session management operations
-- Message streaming updates
-
-### Project Structure
-```
-src/
-├── index.ts          # Application entry point
-├── config.ts         # Configuration management
-├── types.ts                      # TypeScript type definitions
-├── claude-handler.ts             # Claude Code SDK integration
-├── slack-handler.ts              # Slack event handling
-├── working-directory-manager.ts  # Working directory management
-└── logger.ts                     # Logging utility
-```
-
-### Available Scripts
-- `npm run dev` - Start in development mode with hot reload
-- `npm run build` - Build TypeScript to JavaScript
-- `npm start` - Run the compiled JavaScript
-- `npm run prod` - Run production build
-
-## Troubleshooting
-
-### Bot not responding
-1. Check that the bot is running (`npm run dev`)
-2. Verify all environment variables are set correctly
-3. Ensure the bot has been invited to the channel
-4. Check Slack app permissions are configured correctly
-
-### Authentication errors
-1. Verify your Anthropic API key is valid
-2. Check Slack tokens haven't expired
-3. Ensure Socket Mode is enabled
-
-### Message formatting issues
-The bot converts Claude's markdown to Slack's formatting. Some complex formatting may not translate perfectly.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 

@@ -1,58 +1,59 @@
 import { App } from '@slack/bolt';
-import { config, validateConfig } from './config';
-import { ClaudeHandler } from './claude-handler';
-import { SlackHandler } from './slack-handler';
-import { McpManager } from './mcp-manager';
-import { Logger } from './logger';
+import { claudeQuery } from './claude/query';
+import { loadConfig } from './config';
+import { createDatabase } from './db/database';
+import { SessionRepository } from './db/sessions';
+import { WorkingDirectoryRepository } from './db/working-dirs';
+import { McpManager } from './mcp/manager';
+import { registerHandlers } from './slack/handler';
+import { Logger } from './utils/logger';
 
 const logger = new Logger('Main');
 
-async function start() {
-  try {
-    // Validate configuration
-    validateConfig();
+async function main(): Promise<void> {
+  const config = loadConfig();
 
-    logger.info('Starting Claude Code Slack bot', {
-      debug: config.debug,
-      useBedrock: config.claude.useBedrock,
-      useVertex: config.claude.useVertex,
-    });
+  const db = createDatabase(config.dbPath);
+  const sessionRepo = new SessionRepository(db);
+  const workingDirRepo = new WorkingDirectoryRepository(db);
+  const mcpManager = new McpManager();
 
-    // Initialize Slack app
-    const app = new App({
-      token: config.slack.botToken,
-      signingSecret: config.slack.signingSecret,
-      socketMode: true,
-      appToken: config.slack.appToken,
-    });
+  const app = new App({
+    token: config.slack.botToken,
+    appToken: config.slack.appToken,
+    signingSecret: config.slack.signingSecret,
+    socketMode: true,
+  });
 
-    // Initialize MCP manager
-    const mcpManager = new McpManager();
-    const mcpConfig = mcpManager.loadConfiguration();
-    
-    // Initialize handlers
-    const claudeHandler = new ClaudeHandler(mcpManager);
-    const slackHandler = new SlackHandler(app, claudeHandler, mcpManager);
+  registerHandlers({
+    app,
+    config,
+    sessionRepo,
+    workingDirRepo,
+    mcpManager,
+    claudeQuery,
+  });
 
-    // Setup event handlers
-    slackHandler.setupEventHandlers();
+  await app.start();
+  logger.info('Claude Code Slack Bot started');
 
-    // Start the app
-    await app.start();
-    logger.info('⚡️ Claude Code Slack bot is running!');
-    logger.info('Configuration:', {
-      usingBedrock: config.claude.useBedrock,
-      usingVertex: config.claude.useVertex,
-      usingAnthropicAPI: !config.claude.useBedrock && !config.claude.useVertex,
-      debugMode: config.debug,
-      baseDirectory: config.baseDirectory || 'not set',
-      mcpServers: mcpConfig ? Object.keys(mcpConfig.mcpServers).length : 0,
-      mcpServerNames: mcpConfig ? Object.keys(mcpConfig.mcpServers) : [],
-    });
-  } catch (error) {
-    logger.error('Failed to start the bot', error);
-    process.exit(1);
-  }
+  // Graceful shutdown
+  process.on('SIGINT', async () => {
+    logger.info('Shutting down...');
+    await app.stop();
+    db.close();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', async () => {
+    logger.info('Shutting down...');
+    await app.stop();
+    db.close();
+    process.exit(0);
+  });
 }
 
-start();
+main().catch((err) => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});
