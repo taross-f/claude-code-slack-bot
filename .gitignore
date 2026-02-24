@@ -14,8 +14,8 @@ mcp-servers.json
 *.db-wal
 *.db-shm
 
-# Bun
-bun.lock
+# npm lockfile (project uses bun)
+package-lock.json
 
 # Build output (legacy)
 dist/
