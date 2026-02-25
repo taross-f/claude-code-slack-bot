@@ -12,23 +12,14 @@ export class McpManager {
   }
 
   load(): void {
-    try {
-      if (!existsSync(MCP_CONFIG_PATH)) {
-        this.logger.info('No mcp-servers.json found, MCP disabled');
-        this.servers = {};
-        return;
-      }
-      const text = readFileSync(MCP_CONFIG_PATH, 'utf-8');
-      this.servers = JSON.parse(text) as Record<string, unknown>;
-      this.logger.info('MCP servers loaded', { count: Object.keys(this.servers).length });
-    } catch (err) {
-      this.logger.warn('Failed to load mcp-servers.json', err);
+    if (!existsSync(MCP_CONFIG_PATH)) {
+      this.logger.info('No mcp-servers.json found, MCP disabled');
       this.servers = {};
+      return;
     }
-  }
-
-  reload(): void {
-    this.load();
+    const text = readFileSync(MCP_CONFIG_PATH, 'utf-8');
+    this.servers = JSON.parse(text) as Record<string, unknown>;
+    this.logger.info('MCP servers loaded', { count: Object.keys(this.servers).length });
   }
 
   getServers(): Record<string, unknown> {

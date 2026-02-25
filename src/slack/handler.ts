@@ -58,22 +58,16 @@ function isMcpReload(text: string): boolean {
   return /^mcp\s+reload\s*$/i.test(text);
 }
 
-/** Download a Slack file and return its Buffer (or null on failure). */
-async function downloadFile(file: SlackFile, botToken: string): Promise<Buffer | null> {
-  try {
-    const response = await fetch(file.urlPrivate, {
-      headers: { Authorization: `Bearer ${botToken}` },
-    });
-    if (!response.ok) {
-      logger.warn('Failed to download file', { name: file.name, status: response.status });
-      return null;
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
-  } catch (err) {
-    logger.warn('Error downloading file', { name: file.name, err });
-    return null;
+/** Download a Slack file and return its Buffer. Throws on failure. */
+async function downloadFile(file: SlackFile, botToken: string): Promise<Buffer> {
+  const response = await fetch(file.urlPrivate, {
+    headers: { Authorization: `Bearer ${botToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to download file "${file.name}": HTTP ${response.status}`);
   }
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 /**
@@ -90,8 +84,13 @@ async function processFiles(
   const tempFiles: string[] = [];
 
   for (const file of files) {
-    const buffer = await downloadFile(file, botToken);
-    if (!buffer) continue;
+    let buffer: Buffer;
+    try {
+      buffer = await downloadFile(file, botToken);
+    } catch (err) {
+      logger.warn('Skipping file due to download error', { name: file.name, err });
+      continue;
+    }
 
     const result = await processUploadedFile(file, buffer);
 
@@ -173,6 +172,160 @@ function buildSlackOps(client: any, channelId: string): SlackOps {
 }
 
 // ---------------------------------------------------------------------------
+// Meta-command handling (shared between app_mention and DM)
+// ---------------------------------------------------------------------------
+
+interface MetaCommandContext {
+  cleanText: string;
+  channelId: string;
+  threadTs: string | undefined;
+  ts: string;
+  userId: string;
+  say: (opts: { text: string; thread_ts?: string }) => Promise<unknown>;
+  config: Config;
+  workingDirRepo: WorkingDirectoryRepository;
+  mcpManager: McpManager;
+}
+
+/** Handle cwd/mcp commands. Returns true if a command was handled. */
+async function handleMetaCommand(ctx: MetaCommandContext): Promise<boolean> {
+  const { cleanText, channelId, threadTs, ts, userId, say, config, workingDirRepo, mcpManager } =
+    ctx;
+  const replyTs = threadTs ?? ts;
+
+  // CWD command
+  const cwdPath = parseCwdCommand(cleanText);
+  if (cwdPath !== null) {
+    const resolved = resolveCwd(cwdPath, config.baseDirectory);
+    const dirKey = threadTs ? `${channelId}-${threadTs}` : channelId;
+    workingDirRepo.set({
+      dirKey,
+      channelId,
+      threadTs: threadTs ?? null,
+      userId,
+      directory: resolved,
+      setAt: Date.now(),
+    });
+    await say({ text: `✅ Working directory set to \`${resolved}\``, thread_ts: replyTs });
+    return true;
+  }
+
+  // MCP reload
+  if (isMcpReload(cleanText)) {
+    mcpManager.load();
+    const list = formatMcpList(mcpManager);
+    await say({
+      text: `✅ MCP configuration reloaded successfully.\n\nServers:\n${list}`,
+      thread_ts: replyTs,
+    });
+    return true;
+  }
+
+  // MCP status
+  if (isMcpStatus(cleanText)) {
+    const list = formatMcpList(mcpManager);
+    await say({ text: `🔧 *MCP Servers Configured:*\n${list}`, thread_ts: replyTs });
+    return true;
+  }
+
+  return false;
+}
+
+function formatMcpList(mcpManager: McpManager): string {
+  const names = mcpManager.getServerNames();
+  return names.length > 0 ? names.map((n) => `• ${n}`).join('\n') : '_none_';
+}
+
+// ---------------------------------------------------------------------------
+// Message dispatch (shared between app_mention and DM)
+// ---------------------------------------------------------------------------
+
+interface DispatchContext {
+  cleanText: string;
+  channelId: string;
+  userId: string;
+  ts: string;
+  threadTs: string | undefined;
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt event types
+  event: any;
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt client type
+  client: any;
+  say: (opts: { text: string; thread_ts?: string }) => Promise<unknown>;
+  config: Config;
+  sessionRepo: SessionRepository;
+  workingDirRepo: WorkingDirectoryRepository;
+  claudeQuery: ClaudeQueryFn;
+  permissionGate: PermissionGate;
+}
+
+async function dispatchMessage(ctx: DispatchContext): Promise<void> {
+  const {
+    cleanText,
+    channelId,
+    userId,
+    ts,
+    threadTs,
+    event,
+    client,
+    say,
+    config,
+    sessionRepo,
+    workingDirRepo,
+    claudeQuery,
+    permissionGate,
+  } = ctx;
+
+  const slackOps = buildSlackOps(client, channelId);
+  const slackFiles = normaliseFiles(event.files);
+
+  let prompt = cleanText;
+  let tempFiles: string[] = [];
+
+  if (slackFiles.length > 0) {
+    const { extra, tempFiles: tmp } = await processFiles(slackFiles, config.slack.botToken);
+    prompt += extra;
+    tempFiles = tmp;
+  }
+
+  const incomingMessage: IncomingMessage = {
+    userId,
+    channelId,
+    ts,
+    threadTs,
+    text: prompt,
+    files: slackFiles,
+  };
+
+  const processor = new MessageProcessor({
+    sessionRepo,
+    workingDirRepo,
+    claudeQuery,
+    slackOps,
+    permissionGate,
+    maxBudgetUsd: config.claude.maxBudgetUsd,
+    maxTurns: config.claude.maxTurns,
+  });
+
+  try {
+    await processor.process(incomingMessage);
+  } catch (err) {
+    logger.error('Error processing message', err);
+    try {
+      await say({
+        text: `❌ An error occurred: ${err instanceof Error ? err.message : String(err)}`,
+        thread_ts: threadTs ?? ts,
+      });
+    } catch {
+      // Best-effort error reporting
+    }
+  } finally {
+    for (const tmpPath of tempFiles) {
+      cleanupTempFile(tmpPath);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // registerHandlers
 // ---------------------------------------------------------------------------
 
@@ -208,99 +361,34 @@ export function registerHandlers(deps: HandlerDeps): void {
 
     logger.debug('app_mention received', { channelId, userId, cleanText });
 
-    // CWD command
-    const cwdPath = parseCwdCommand(cleanText);
-    if (cwdPath !== null) {
-      const resolved = resolveCwd(cwdPath, config.baseDirectory);
-      const dirKey = threadTs ? `${channelId}-${threadTs}` : channelId;
-      workingDirRepo.set({
-        dirKey,
-        channelId,
-        threadTs: threadTs ?? null,
-        userId,
-        directory: resolved,
-        setAt: Date.now(),
-      });
-      await say({
-        text: `✅ Working directory set to \`${resolved}\``,
-        thread_ts: threadTs ?? ts,
-      });
-      return;
-    }
-
-    // MCP reload
-    if (isMcpReload(cleanText)) {
-      mcpManager.reload();
-      const names = mcpManager.getServerNames();
-      const list = names.length > 0 ? names.map((n) => `• ${n}`).join('\n') : '_none_';
-      await say({
-        text: `✅ MCP configuration reloaded successfully.\n\nServers:\n${list}`,
-        thread_ts: threadTs ?? ts,
-      });
-      return;
-    }
-
-    // MCP status
-    if (isMcpStatus(cleanText)) {
-      const names = mcpManager.getServerNames();
-      const list = names.length > 0 ? names.map((n) => `• ${n}`).join('\n') : '_none_';
-      await say({
-        text: `🔧 *MCP Servers Configured:*\n${list}`,
-        thread_ts: threadTs ?? ts,
-      });
-      return;
-    }
-
-    // Regular message — delegate to MessageProcessor
-    const slackOps = buildSlackOps(client, channelId);
-
-    // Process attached files if any
-    const slackFiles = normaliseFiles(event.files);
-
-    let prompt = cleanText;
-    let tempFiles: string[] = [];
-
-    if (slackFiles.length > 0) {
-      const { extra, tempFiles: tmp } = await processFiles(slackFiles, config.slack.botToken);
-      prompt += extra;
-      tempFiles = tmp;
-    }
-
-    const incomingMessage: IncomingMessage = {
-      userId,
+    const handled = await handleMetaCommand({
+      cleanText,
       channelId,
+      threadTs,
+      ts,
+      userId,
+      say,
+      config,
+      workingDirRepo,
+      mcpManager,
+    });
+    if (handled) return;
+
+    await dispatchMessage({
+      cleanText,
+      channelId,
+      userId,
       ts,
       threadTs,
-      text: prompt,
-      files: slackFiles,
-    };
-
-    const processor = new MessageProcessor({
+      event,
+      client,
+      say,
+      config,
       sessionRepo,
       workingDirRepo,
       claudeQuery: wrappedClaudeQuery,
-      slackOps,
-      maxBudgetUsd: config.claude.maxBudgetUsd,
-      maxTurns: config.claude.maxTurns,
+      permissionGate,
     });
-
-    try {
-      await processor.process(incomingMessage);
-    } catch (err) {
-      logger.error('Error processing app_mention', err);
-      try {
-        await say({
-          text: `❌ An error occurred: ${err instanceof Error ? err.message : String(err)}`,
-          thread_ts: threadTs ?? ts,
-        });
-      } catch {
-        // Best-effort error reporting
-      }
-    } finally {
-      for (const tmpPath of tempFiles) {
-        cleanupTempFile(tmpPath);
-      }
-    }
   });
 
   // -------------------------------------------------------------------------
@@ -309,7 +397,7 @@ export function registerHandlers(deps: HandlerDeps): void {
   // biome-ignore lint/suspicious/noExplicitAny: Bolt event callback types are complex generics
   app.message(async ({ event, client, say }: any) => {
     // Ignore bot messages and subtypes like message_changed / message_deleted
-    if (event.bot_id || event.subtype === 'bot_message' || event.subtype) {
+    if (event.bot_id || event.subtype) {
       return;
     }
 
@@ -327,97 +415,34 @@ export function registerHandlers(deps: HandlerDeps): void {
 
     logger.debug('DM received', { channelId, userId, cleanText });
 
-    // CWD command
-    const cwdPath = parseCwdCommand(cleanText);
-    if (cwdPath !== null) {
-      const resolved = resolveCwd(cwdPath, config.baseDirectory);
-      workingDirRepo.set({
-        dirKey: channelId,
-        channelId,
-        threadTs: null,
-        userId,
-        directory: resolved,
-        setAt: Date.now(),
-      });
-      await say({
-        text: `✅ Working directory set to \`${resolved}\``,
-        thread_ts: threadTs,
-      });
-      return;
-    }
-
-    // MCP reload
-    if (isMcpReload(cleanText)) {
-      mcpManager.reload();
-      const names = mcpManager.getServerNames();
-      const list = names.length > 0 ? names.map((n) => `• ${n}`).join('\n') : '_none_';
-      await say({
-        text: `✅ MCP configuration reloaded successfully.\n\nServers:\n${list}`,
-        thread_ts: threadTs,
-      });
-      return;
-    }
-
-    // MCP status
-    if (isMcpStatus(cleanText)) {
-      const names = mcpManager.getServerNames();
-      const list = names.length > 0 ? names.map((n) => `• ${n}`).join('\n') : '_none_';
-      await say({
-        text: `🔧 *MCP Servers Configured:*\n${list}`,
-        thread_ts: threadTs,
-      });
-      return;
-    }
-
-    // Regular DM — delegate to MessageProcessor
-    const slackOps = buildSlackOps(client, channelId);
-
-    const slackFiles = normaliseFiles(event.files);
-
-    let prompt = cleanText;
-    let tempFiles: string[] = [];
-
-    if (slackFiles.length > 0) {
-      const { extra, tempFiles: tmp } = await processFiles(slackFiles, config.slack.botToken);
-      prompt += extra;
-      tempFiles = tmp;
-    }
-
-    const incomingMessage: IncomingMessage = {
-      userId,
+    const handled = await handleMetaCommand({
+      cleanText,
       channelId,
+      threadTs,
+      ts,
+      userId,
+      say,
+      config,
+      workingDirRepo,
+      mcpManager,
+    });
+    if (handled) return;
+
+    await dispatchMessage({
+      cleanText,
+      channelId,
+      userId,
       ts,
       threadTs,
-      text: prompt,
-      files: slackFiles,
-    };
-
-    const processor = new MessageProcessor({
+      event,
+      client,
+      say,
+      config,
       sessionRepo,
       workingDirRepo,
       claudeQuery: wrappedClaudeQuery,
-      slackOps,
-      maxBudgetUsd: config.claude.maxBudgetUsd,
-      maxTurns: config.claude.maxTurns,
+      permissionGate,
     });
-
-    try {
-      await processor.process(incomingMessage);
-    } catch (err) {
-      logger.error('Error processing DM', err);
-      try {
-        await say({
-          text: `❌ An error occurred: ${err instanceof Error ? err.message : String(err)}`,
-          thread_ts: threadTs,
-        });
-      } catch {
-        // Best-effort error reporting
-      }
-    } finally {
-      for (const tmpPath of tempFiles) {
-        cleanupTempFile(tmpPath);
-      }
-    }
   });
 
   // -------------------------------------------------------------------------
@@ -429,14 +454,8 @@ export function registerHandlers(deps: HandlerDeps): void {
     const channelId: string = event.channel as string;
 
     // Only act when the bot itself joins the channel
-    let botUserId: string;
-    try {
-      const authResult = await client.auth.test();
-      botUserId = authResult.user_id as string;
-    } catch (err) {
-      logger.warn('Failed to get bot user ID in member_joined_channel', err);
-      return;
-    }
+    const authResult = await client.auth.test();
+    const botUserId = authResult.user_id as string;
 
     if (memberId !== botUserId) {
       return;
@@ -444,19 +463,15 @@ export function registerHandlers(deps: HandlerDeps): void {
 
     logger.info('Bot joined channel', { channelId });
 
-    try {
-      await client.chat.postMessage({
-        channel: channelId,
-        text:
-          "👋 Hi! I'm Claude Code Bot. Before we get started, please set a working directory:\n\n" +
-          '`@ClaudeBot cwd /absolute/path/to/project`\n' +
-          'or, if a base directory is configured:\n' +
-          '`@ClaudeBot cwd project-name`\n\n' +
-          'Once set, just mention me with any coding question or task!',
-      });
-    } catch (err) {
-      logger.warn('Failed to send welcome message', { channelId, err });
-    }
+    await client.chat.postMessage({
+      channel: channelId,
+      text:
+        "👋 Hi! I'm Claude Code Bot. Before we get started, please set a working directory:\n\n" +
+        '`@ClaudeBot cwd /absolute/path/to/project`\n' +
+        'or, if a base directory is configured:\n' +
+        '`@ClaudeBot cwd project-name`\n\n' +
+        'Once set, just mention me with any coding question or task!',
+    });
   });
 
   // -------------------------------------------------------------------------

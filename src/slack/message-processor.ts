@@ -1,4 +1,4 @@
-import { PermissionGate } from '../claude/permissions';
+import type { PermissionGate } from '../claude/permissions';
 import type { SessionRepository } from '../db/sessions';
 import type { WorkingDirectoryRepository } from '../db/working-dirs';
 import { Logger } from '../utils/logger';
@@ -10,22 +10,18 @@ export interface MessageProcessorDeps {
   workingDirRepo: WorkingDirectoryRepository;
   claudeQuery: ClaudeQueryFn;
   slackOps: SlackOps;
-  maxBudgetUsd?: number;
-  maxTurns?: number;
+  permissionGate: PermissionGate;
+  maxBudgetUsd: number;
+  maxTurns: number;
 }
 
 export class MessageProcessor {
   private readonly logger = new Logger('MessageProcessor');
-  private readonly permissionGate = new PermissionGate();
 
   constructor(private readonly deps: MessageProcessorDeps) {}
 
   private sessionKey(userId: string, channelId: string, threadTs?: string): string {
     return `${userId}-${channelId}-${threadTs ?? 'direct'}`;
-  }
-
-  private isDM(channelId: string): boolean {
-    return channelId.startsWith('D');
   }
 
   async process(event: IncomingMessage): Promise<void> {
@@ -34,7 +30,7 @@ export class MessageProcessor {
 
     // Channels require a working directory; DMs do not.
     let workingDirectory: string | undefined;
-    if (!this.isDM(channelId)) {
+    if (!channelId.startsWith('D')) {
       const dir = this.deps.workingDirRepo.findForMessage(channelId, threadTs);
       if (!dir) {
         await this.deps.slackOps.say({
@@ -75,14 +71,18 @@ export class MessageProcessor {
         prompt: text ?? '',
         abortController,
         options: {
-          outputFormat: 'stream-json',
-          permissionMode: 'default',
           cwd: workingDirectory,
           resume: existing?.claudeSessionId ?? undefined,
-          maxBudgetUsd: this.deps.maxBudgetUsd ?? 1.0,
-          maxTurns: this.deps.maxTurns ?? 50,
+          maxBudgetUsd: this.deps.maxBudgetUsd,
+          maxTurns: this.deps.maxTurns,
           canUseTool: (tool, input) =>
-            this.permissionGate.request(tool, input, channelId, replyThreadTs, this.deps.slackOps),
+            this.deps.permissionGate.request(
+              tool,
+              input,
+              channelId,
+              replyThreadTs,
+              this.deps.slackOps
+            ),
         },
       })) {
         if (abortController.signal.aborted) break;

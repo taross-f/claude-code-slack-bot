@@ -59,21 +59,4 @@ describe('SessionRepository', () => {
     repo.updateClaudeSessionId('missing', 'session-id');
     expect(repo.find('missing')).toBeNull();
   });
-
-  test('cleanup removes sessions older than threshold', () => {
-    const oldTs = Date.now() - 3 * 60 * 60 * 1000; // 3 hours ago
-    repo.upsert({ sessionKey: 'old', claudeSessionId: null, ...BASE, lastActivityAt: oldTs });
-    repo.upsert({ sessionKey: 'new', claudeSessionId: null, ...BASE });
-
-    const removed = repo.cleanup(2 * 60 * 60 * 1000); // 2-hour threshold
-
-    expect(removed).toBe(1);
-    expect(repo.find('old')).toBeNull();
-    expect(repo.find('new')).not.toBeNull();
-  });
-
-  test('cleanup returns 0 when nothing qualifies', () => {
-    repo.upsert({ sessionKey: 'key5', claudeSessionId: null, ...BASE });
-    expect(repo.cleanup(24 * 60 * 60 * 1000)).toBe(0);
-  });
 });

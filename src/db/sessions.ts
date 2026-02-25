@@ -70,16 +70,4 @@ export class SessionRepository {
       )
       .run(claudeSessionId, Date.now(), sessionKey);
   }
-
-  updateLastActivity(sessionKey: string): void {
-    this.db
-      .prepare('UPDATE sessions SET last_activity_at = ? WHERE session_key = ?')
-      .run(Date.now(), sessionKey);
-  }
-
-  cleanup(olderThanMs: number): number {
-    const cutoff = Date.now() - olderThanMs;
-    const result = this.db.prepare('DELETE FROM sessions WHERE last_activity_at < ?').run(cutoff);
-    return result.changes;
-  }
 }

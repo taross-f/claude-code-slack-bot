@@ -69,12 +69,10 @@ export type ClaudeMessage = ClaudeSystemInitMessage | ClaudeAssistantMessage | C
 export type PermissionResult = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 
 export interface ClaudeQueryOptions {
-  outputFormat?: string;
-  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
   cwd?: string;
   resume?: string;
-  maxBudgetUsd?: number;
-  maxTurns?: number;
+  maxBudgetUsd: number;
+  maxTurns: number;
   mcpServers?: Record<string, unknown>;
   allowedTools?: string[];
   canUseTool?: (tool: string, input: unknown) => Promise<PermissionResult>;

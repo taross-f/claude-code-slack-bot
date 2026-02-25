@@ -10,13 +10,8 @@ type PermissionRequestMessage = {
   respond?: (result: { behavior: 'allow' } | { behavior: 'deny'; message: string }) => void;
 };
 
-function toPermissionMode(mode?: string): 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' {
-  if (mode === 'acceptEdits' || mode === 'bypassPermissions' || mode === 'plan') return mode;
-  return 'default';
-}
-
 export const claudeQuery: ClaudeQueryFn = async function* ({ prompt, abortController, options }) {
-  const { cwd, resume, maxTurns, mcpServers, allowedTools, canUseTool, permissionMode } = options;
+  const { cwd, resume, maxTurns, mcpServers, allowedTools, canUseTool } = options;
 
   const sdkOptions: Parameters<typeof query>[0] = {
     prompt,
@@ -27,7 +22,6 @@ export const claudeQuery: ClaudeQueryFn = async function* ({ prompt, abortContro
       maxTurns,
       mcpServers: mcpServers as Record<string, McpServerConfig>,
       allowedTools,
-      permissionMode: toPermissionMode(permissionMode),
     },
   };
 
@@ -37,11 +31,7 @@ export const claudeQuery: ClaudeQueryFn = async function* ({ prompt, abortContro
     if (m.type === 'system' && m.subtype === 'permission_request' && canUseTool) {
       const result: PermissionResult = await canUseTool(m.tool_name, m.tool_input);
       if (m.respond) {
-        if (result.behavior === 'allow') {
-          m.respond({ behavior: 'allow' });
-        } else {
-          m.respond({ behavior: 'deny', message: result.message });
-        }
+        m.respond(result);
       }
       continue;
     }
