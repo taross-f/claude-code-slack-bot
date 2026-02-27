@@ -63,12 +63,11 @@ function createFakeApp(): FakeApp {
 // Fake McpManager
 // ---------------------------------------------------------------------------
 
-function createFakeMcpManager(serverNames: string[] = []): McpManager & { reloadCalled: boolean } {
+function createFakeMcpManager(serverNames: string[] = []): McpManager & { loadCallCount: number } {
   return {
-    reloadCalled: false,
-    load() {},
-    reload() {
-      (this as { reloadCalled: boolean }).reloadCalled = true;
+    loadCallCount: 0,
+    load() {
+      (this as { loadCallCount: number }).loadCallCount++;
     },
     getServers() {
       return Object.fromEntries(serverNames.map((n) => [n, {}]));
@@ -76,7 +75,7 @@ function createFakeMcpManager(serverNames: string[] = []): McpManager & { reload
     getServerNames() {
       return serverNames;
     },
-  } as unknown as McpManager & { reloadCalled: boolean };
+  } as unknown as McpManager & { loadCallCount: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -338,11 +337,11 @@ describe('Scenario 4 – mcp reload command', () => {
   test('calls mcpManager.reload() when the DM text is "mcp reload"', async () => {
     const harness = makeHarness({ serverNames: ['srv-a'] });
 
-    expect(harness.mcpManager.reloadCalled).toBe(false);
+    expect(harness.mcpManager.loadCallCount).toBe(0);
 
     await sendDM(harness, 'mcp reload');
 
-    expect(harness.mcpManager.reloadCalled).toBe(true);
+    expect(harness.mcpManager.loadCallCount).toBe(1);
   });
 
   test('replies with a success confirmation after reload (DM)', async () => {
@@ -369,7 +368,7 @@ describe('Scenario 4 – mcp reload command', () => {
 
     await sendMention(harness, '<@UBOT> mcp reload', 'C400');
 
-    expect(harness.mcpManager.reloadCalled).toBe(true);
+    expect(harness.mcpManager.loadCallCount).toBe(1);
   });
 
   test('shows _none_ in reload reply when no servers are configured', async () => {

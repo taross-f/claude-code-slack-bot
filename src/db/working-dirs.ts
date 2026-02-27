@@ -59,9 +59,4 @@ export class WorkingDirectoryRepository {
         dir.setAt
       );
   }
-
-  remove(key: string): boolean {
-    const result = this.db.prepare('DELETE FROM working_directories WHERE dir_key = ?').run(key);
-    return result.changes > 0;
-  }
 }

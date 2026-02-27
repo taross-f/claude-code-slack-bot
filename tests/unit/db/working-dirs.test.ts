@@ -52,23 +52,6 @@ describe('WorkingDirectoryRepository', () => {
     expect(repo.find('C1')?.directory).toBe('/new');
   });
 
-  test('remove deletes the entry and returns true', () => {
-    repo.set({
-      dirKey: 'C2',
-      channelId: 'C2',
-      threadTs: null,
-      userId: null,
-      directory: '/x',
-      setAt: NOW,
-    });
-    expect(repo.remove('C2')).toBe(true);
-    expect(repo.find('C2')).toBeNull();
-  });
-
-  test('remove on non-existent key returns false', () => {
-    expect(repo.remove('non-existent')).toBe(false);
-  });
-
   describe('findForMessage', () => {
     test('returns null when neither thread nor channel dir is set', () => {
       expect(repo.findForMessage('C3', 'thread1')).toBeNull();

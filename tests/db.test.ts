@@ -76,23 +76,6 @@ describe('SessionRepository', () => {
     repo.updateClaudeSessionId('missing-key', 'some-id');
     expect(repo.find('missing-key')).toBeNull();
   });
-
-  it('cleanup removes sessions older than the threshold and returns count', () => {
-    const oldTs = Date.now() - 3 * 60 * 60 * 1000; // 3 hours ago
-    repo.upsert({ ...BASE_SESSION, sessionKey: 'sess-old', lastActivityAt: oldTs });
-    repo.upsert({ ...BASE_SESSION, sessionKey: 'sess-new' });
-
-    const removed = repo.cleanup(2 * 60 * 60 * 1000); // 2-hour threshold
-
-    expect(removed).toBe(1);
-    expect(repo.find('sess-old')).toBeNull();
-    expect(repo.find('sess-new')).not.toBeNull();
-  });
-
-  it('cleanup returns 0 when no sessions are old enough', () => {
-    repo.upsert({ ...BASE_SESSION });
-    expect(repo.cleanup(24 * 60 * 60 * 1000)).toBe(0);
-  });
 });
 
 // ─── WorkingDirectoryRepository ──────────────────────────────────────────────
@@ -133,16 +116,6 @@ describe('WorkingDirectoryRepository', () => {
     repo.set({ ...channelDir, directory: '/old' });
     repo.set({ ...channelDir, directory: '/new' });
     expect(repo.find('C100')?.directory).toBe('/new');
-  });
-
-  it('remove deletes the entry and returns true', () => {
-    repo.set(channelDir);
-    expect(repo.remove('C100')).toBe(true);
-    expect(repo.find('C100')).toBeNull();
-  });
-
-  it('remove on a non-existent key returns false', () => {
-    expect(repo.remove('no-such-key')).toBe(false);
   });
 
   describe('findForMessage', () => {

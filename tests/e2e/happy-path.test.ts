@@ -9,6 +9,7 @@
  * Covers the critical user-facing flows without external dependencies.
  */
 import { beforeEach, describe, expect, test } from 'bun:test';
+import { PermissionGate } from '../../src/claude/permissions';
 import type { SessionRepository } from '../../src/db/sessions';
 import type { WorkingDirectoryRepository } from '../../src/db/working-dirs';
 import { MessageProcessor } from '../../src/slack/message-processor';
@@ -31,6 +32,9 @@ function makeProcessor(
     ...deps,
     claudeQuery,
     slackOps,
+    permissionGate: new PermissionGate(),
+    maxBudgetUsd: 1.0,
+    maxTurns: 50,
   });
   return { processor, slackOps };
 }

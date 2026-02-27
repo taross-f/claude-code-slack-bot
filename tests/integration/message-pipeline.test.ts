@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
+import { PermissionGate } from '../../src/claude/permissions';
 import { createDatabase } from '../../src/db/database';
 import { SessionRepository } from '../../src/db/sessions';
 import { WorkingDirectoryRepository } from '../../src/db/working-dirs';
@@ -231,6 +232,9 @@ function makeProcessor(claudeQuery: ClaudeQueryFn, slackOps: TrackedSlackOps, wo
     workingDirRepo,
     claudeQuery,
     slackOps,
+    permissionGate: new PermissionGate(),
+    maxBudgetUsd: 1.0,
+    maxTurns: 50,
   });
 
   return { processor, sessionRepo, workingDirRepo };
@@ -525,6 +529,9 @@ describe('Scenario 6 – session continuity across consecutive calls', () => {
       workingDirRepo,
       claudeQuery: trackingQuery,
       slackOps: slackOps1,
+      permissionGate: new PermissionGate(),
+      maxBudgetUsd: 1.0,
+      maxTurns: 50,
     });
 
     // First call — session not yet in DB
@@ -547,6 +554,9 @@ describe('Scenario 6 – session continuity across consecutive calls', () => {
       workingDirRepo,
       claudeQuery: trackingQuery,
       slackOps: slackOps2,
+      permissionGate: new PermissionGate(),
+      maxBudgetUsd: 1.0,
+      maxTurns: 50,
     });
 
     await processor2.process({
@@ -650,6 +660,9 @@ describe('Channel message without working directory', () => {
       workingDirRepo,
       claudeQuery: neverCalledQuery,
       slackOps,
+      permissionGate: new PermissionGate(),
+      maxBudgetUsd: 1.0,
+      maxTurns: 50,
     });
 
     await processor.process({
