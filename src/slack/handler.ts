@@ -237,6 +237,60 @@ function formatMcpList(mcpManager: McpManager): string {
 }
 
 // ---------------------------------------------------------------------------
+// Thread context fetching
+// ---------------------------------------------------------------------------
+
+const THREAD_CONTEXT_MAX_MESSAGES = 30;
+
+/**
+ * Fetch the conversation history from a Slack thread and format it as context
+ * for Claude. This allows the bot to understand what was discussed before it
+ * was mentioned mid-thread.
+ */
+async function fetchThreadContext(
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt client type
+  client: any,
+  channelId: string,
+  threadTs: string,
+  currentMessageTs: string
+): Promise<string> {
+  try {
+    const result = await client.conversations.replies({
+      channel: channelId,
+      ts: threadTs,
+      limit: 200,
+    });
+
+    const messages = (result.messages ?? []) as Array<{
+      user?: string;
+      bot_id?: string;
+      text?: string;
+      ts: string;
+    }>;
+
+    // Exclude the current message from context
+    const contextMessages = messages.filter((m) => m.ts !== currentMessageTs);
+    if (contextMessages.length === 0) return '';
+
+    // Take the last N messages to keep context manageable
+    const trimmed =
+      contextMessages.length > THREAD_CONTEXT_MAX_MESSAGES
+        ? contextMessages.slice(-THREAD_CONTEXT_MAX_MESSAGES)
+        : contextMessages;
+
+    const lines = trimmed.map((m) => {
+      const sender = m.bot_id ? '[Bot]' : `<@${m.user}>`;
+      return `${sender}: ${(m.text ?? '').trim()}`;
+    });
+
+    return `[Thread Context - Previous messages in this thread]\n${lines.join('\n')}\n[End of Thread Context]\n\n`;
+  } catch (err) {
+    logger.warn('Failed to fetch thread context', { channelId, threadTs, err });
+    return '';
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Message dispatch (shared between app_mention and DM)
 // ---------------------------------------------------------------------------
 
@@ -276,15 +330,25 @@ async function dispatchMessage(ctx: DispatchContext): Promise<void> {
   } = ctx;
 
   const slackOps = buildSlackOps(client, channelId);
+
+  // Immediately acknowledge with 👀 reaction (Devin-style stamp)
+  await slackOps.addReaction(channelId, ts, 'eyes');
+
   const slackFiles = normaliseFiles(event.files);
 
-  let prompt = cleanText;
-  let tempFiles: string[] = [];
+  // Fetch thread context and process files in parallel
+  const [threadContext, fileResults] = await Promise.all([
+    threadTs ? fetchThreadContext(client, channelId, threadTs, ts) : Promise.resolve(''),
+    slackFiles.length > 0
+      ? processFiles(slackFiles, config.slack.botToken)
+      : Promise.resolve({ extra: '', tempFiles: [] as string[] }),
+  ]);
 
-  if (slackFiles.length > 0) {
-    const { extra, tempFiles: tmp } = await processFiles(slackFiles, config.slack.botToken);
-    prompt += extra;
-    tempFiles = tmp;
+  let prompt = threadContext ? `${threadContext}${cleanText}` : cleanText;
+  const tempFiles: string[] = fileResults.tempFiles;
+
+  if (fileResults.extra) {
+    prompt += fileResults.extra;
   }
 
   const incomingMessage: IncomingMessage = {
@@ -472,6 +536,84 @@ export function registerHandlers(deps: HandlerDeps): void {
         '`@ClaudeBot cwd project-name`\n\n' +
         'Once set, just mention me with any coding question or task!',
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // reaction_added — invoke the bot by adding a stamp to a message
+  // -------------------------------------------------------------------------
+  // biome-ignore lint/suspicious/noExplicitAny: Bolt event callback types are complex generics
+  app.event('reaction_added', async ({ event, client }: any) => {
+    const TRIGGER_REACTIONS = ['robot_face', 'eyes'];
+    const reaction: string = event.reaction as string;
+
+    if (!TRIGGER_REACTIONS.includes(reaction)) return;
+
+    // Ignore reactions the bot added itself
+    const authResult = await client.auth.test();
+    const botUserId = authResult.user_id as string;
+    if (event.user === botUserId) return;
+
+    const channelId: string = event.item.channel as string;
+    const messageTs: string = event.item.ts as string;
+
+    logger.debug('Trigger reaction received', { reaction, channelId, messageTs });
+
+    // Fetch the original message to get its text
+    try {
+      const result = await client.conversations.replies({
+        channel: channelId,
+        ts: messageTs,
+        limit: 1,
+        inclusive: true,
+      });
+
+      const messages = (result.messages ?? []) as Array<{
+        user?: string;
+        bot_id?: string;
+        text?: string;
+        ts: string;
+        thread_ts?: string;
+        files?: unknown;
+      }>;
+
+      if (messages.length === 0) return;
+
+      const msg = messages[0];
+      // Don't process bot messages
+      if (msg.bot_id) return;
+
+      const rawText = (msg.text ?? '').trim();
+      if (!rawText) return;
+
+      const threadTs = msg.thread_ts;
+      const cleanText = stripMention(rawText);
+
+      const say = async (opts: { text: string; thread_ts?: string }) => {
+        return client.chat.postMessage({
+          channel: channelId,
+          text: opts.text,
+          thread_ts: opts.thread_ts,
+        });
+      };
+
+      await dispatchMessage({
+        cleanText: cleanText || rawText,
+        channelId,
+        userId: event.user as string,
+        ts: messageTs,
+        threadTs,
+        event: { ...msg, files: msg.files },
+        client,
+        say,
+        config,
+        sessionRepo,
+        workingDirRepo,
+        claudeQuery: wrappedClaudeQuery,
+        permissionGate,
+      });
+    } catch (err) {
+      logger.error('Error handling reaction trigger', err);
+    }
   });
 
   // -------------------------------------------------------------------------
